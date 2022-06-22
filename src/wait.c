@@ -38,14 +38,16 @@ static inline int select_lua(lua_State *L, int readable, int writable)
     fd_set rfds;
     fd_set wfds;
     fd_set efds;
-    fd_set *rptr = NULL;
-    fd_set *wptr = NULL;
-    fd_set *eptr = NULL;
+    fd_set *rptr         = NULL;
+    fd_set *wptr         = NULL;
+    fd_set *eptr         = NULL;
+    struct timeval *tptr = NULL;
 
     lua_settop(L, 0);
     if (msec > 0) {
         timeout.tv_sec  = msec / 1000;
         timeout.tv_usec = msec % 1000 * 1000;
+        tptr            = &timeout;
     }
 
     // select readable
@@ -68,7 +70,7 @@ static inline int select_lua(lua_State *L, int readable, int writable)
     }
 
     // wait until usable or exceeded timeout
-    switch (select(fd + 1, rptr, wptr, eptr, &timeout)) {
+    switch (select(fd + 1, rptr, wptr, eptr, tptr)) {
     case 0:
         // timeout
         lua_pushboolean(L, 0);

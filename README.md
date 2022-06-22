@@ -19,12 +19,12 @@ the functions/methods are return the error object created by https://github.com/
 
 ## ok, err, timeout = wait.readable( fd [, msec [, exception]] )
 
-wait until specified file descriptor `fd` can be readable within specified timeout milliseconds `msec.
+wait until specified file descriptor `fd` can be readable within specified timeout milliseconds `msec`.
 
 **Parameters**
 
 - `fd:integer`: file descriptor.
-- `msec:integer`: timeout milliseconds. (default `0`)
+- `msec:integer`: timeout milliseconds. if `nil`, wait forever.
 - `exception:boolean`: enable exception waiting. (default `false`)
 
 **Returns**
@@ -36,12 +36,12 @@ wait until specified file descriptor `fd` can be readable within specified timeo
 
 ## ok, err, timeout = wait.writable( fd [, msec [, exception]] )
 
-wait until specified file descriptor `fd` can be writable within specified timeout milliseconds `msec.
+wait until specified file descriptor `fd` can be writable within specified timeout milliseconds `msec`.
 
 **Parameters**
 
 - `fd:integer`: file descriptor.
-- `msec:integer`: timeout milliseconds. (default `0`)
+- `msec:integer`: timeout milliseconds. if `nil`, wait forever.
 - `exception:boolean`: enable exception waiting. (default `false`)
 
 **Returns**
