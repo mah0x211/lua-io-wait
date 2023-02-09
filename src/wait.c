@@ -60,16 +60,13 @@ static inline int poll_lua(lua_State *L, short event, short event_opts)
 
     default:
         // selected
-        if (fds[0].revents & event) {
+        if (fds[0].revents & (event | POLLHUP)) {
             lua_pushboolean(L, 1);
             return 1;
         }
         // got error
         lua_pushboolean(L, 0);
-        if (errno) {
-            lua_errno_new(L, errno, "poll");
-            return 2;
-        } else if (fds[0].revents & POLLNVAL) {
+        if (fds[0].revents & POLLNVAL) {
             errno = EBADF;
             lua_errno_new(L, errno, "poll");
             return 2;

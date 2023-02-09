@@ -8,55 +8,81 @@ local r, w, perr = pipe(true)
 assert(r, perr)
 
 -- test that return timeout
-local t = gettime()
-local ok, err, timeout = wait.readable(r:fd(), 1000)
-t = gettime() - t
-assert.is_false(ok)
-assert(not err, err)
-assert.is_true(timeout)
-assert(t > 1.0 and t < 1.5)
+do
+    local t = gettime()
+    local ok, err, timeout = wait.readable(r:fd(), 1000)
+    t = gettime() - t
+    assert.is_false(ok)
+    assert(not err, err)
+    assert.is_true(timeout)
+    assert(t > 1.0 and t < 1.5)
+end
 
 -- test that wait until fd is writable
-t = gettime()
-ok, err, timeout = assert(wait.writable(w:fd(), 1000))
-t = gettime() - t
-assert.is_true(ok)
-assert(not err, err)
-assert.is_nil(timeout)
-assert.less(t, 1.0)
+do
+    local t = gettime()
+    local ok, err, timeout = assert(wait.writable(w:fd(), 1000))
+    t = gettime() - t
+    assert.is_true(ok)
+    assert(not err, err)
+    assert.is_nil(timeout)
+    assert.less(t, 1.0)
+end
 
 -- fill data
 repeat
-    local _, again
-    _, err, again = w:write('x')
+    local _, err, again = w:write('x')
     if err then
         error(err)
     end
 until again == true
 
 -- test that wait untile timeout
-t = gettime()
-ok, err, timeout = wait.writable(w:fd(), 1000)
-t = gettime() - t
-assert.is_false(ok)
-assert(not err, err)
-assert.is_true(timeout)
-assert(t > 1.0 and t < 1.5)
+do
+    local t = gettime()
+    local ok, err, timeout = wait.writable(w:fd(), 1000)
+    t = gettime() - t
+    assert.is_false(ok)
+    assert(not err, err)
+    assert.is_true(timeout)
+    assert(t > 1.0 and t < 1.5)
+end
 
 -- test that wait until fd is readable
-t = gettime()
-ok, err, timeout = assert(wait.readable(r:fd(), 1000))
-t = gettime() - t
-assert.is_true(ok)
-assert(not err, err)
-assert.is_nil(timeout)
-assert.less(t, 1.0)
+do
+    local t = gettime()
+    local ok, err, timeout = assert(wait.readable(r:fd(), 1000))
+    t = gettime() - t
+    assert.is_true(ok)
+    assert(not err, err)
+    assert.is_nil(timeout)
+    assert.less(t, 1.0)
+end
+
+-- consume
+repeat
+    local _, err, again = r:read()
+    assert.is_nil(err)
+until again
+
+-- test that return true imemdiatery if peer is closed
+do
+    assert.is_true(w:close())
+    local t = gettime()
+    local ok, err, timeout = wait.readable(r:fd(), 1000)
+    t = gettime() - t
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.less(t, 0.1)
+end
 
 -- test that return error if fd is closed
-local fd = r:fd()
-r:close()
-ok, err, timeout = wait.readable(fd, 1000)
-assert.is_false(ok)
-assert.equal(err.type, errno.EBADF)
-assert.is_nil(timeout)
-
+do
+    local fd = r:fd()
+    r:close()
+    local ok, err, timeout = wait.readable(fd, 1000)
+    assert.is_false(ok)
+    assert.equal(err.type, errno.EBADF)
+    assert.is_nil(timeout)
+end
