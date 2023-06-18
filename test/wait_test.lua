@@ -2,7 +2,7 @@ local assert = require('assert')
 local errno = require('errno')
 local wait = require('io.wait')
 local gettime = require('clock').gettime
-local pipe = require('pipe')
+local pipe = require('os.pipe')
 
 local r, w, perr = pipe(true)
 assert(r, perr)
