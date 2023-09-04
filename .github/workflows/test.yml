@@ -37,7 +37,7 @@ jobs:
       run: |
         sudo apt install lcov -y
         luarocks install assert
-        luarocks install clock
+        luarocks install time-clock
         luarocks install os-pipe
     -
       name: Run Test

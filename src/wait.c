@@ -32,7 +32,8 @@
 static inline int poll_lua(lua_State *L, short event, short event_opts)
 {
     int fd               = lauxh_checkinteger(L, 1);
-    lua_Integer msec     = luaL_optinteger(L, 2, -1);
+    lua_Number sec       = luaL_optnumber(L, 2, -1);
+    lua_Integer msec     = (sec < 0) ? -1 : (sec * 1000);
     struct pollfd fds[1] = {
         {
          .events  = event | event_opts,
