@@ -1,7 +1,7 @@
 local assert = require('assert')
 local errno = require('errno')
 local wait = require('io.wait')
-local gettime = require('clock').gettime
+local gettime = require('time.clock').gettime
 local pipe = require('os.pipe')
 
 local r, w, perr = pipe(true)
@@ -10,7 +10,7 @@ assert(r, perr)
 -- test that return timeout
 do
     local t = gettime()
-    local ok, err, timeout = wait.readable(r:fd(), 1000)
+    local ok, err, timeout = wait.readable(r:fd(), 1.1)
     t = gettime() - t
     assert.is_false(ok)
     assert(not err, err)
@@ -21,7 +21,7 @@ end
 -- test that wait until fd is writable
 do
     local t = gettime()
-    local ok, err, timeout = assert(wait.writable(w:fd(), 1000))
+    local ok, err, timeout = assert(wait.writable(w:fd(), 1.1))
     t = gettime() - t
     assert.is_true(ok)
     assert(not err, err)
@@ -40,7 +40,7 @@ until again == true
 -- test that wait untile timeout
 do
     local t = gettime()
-    local ok, err, timeout = wait.writable(w:fd(), 1000)
+    local ok, err, timeout = wait.writable(w:fd(), 1.1)
     t = gettime() - t
     assert.is_false(ok)
     assert(not err, err)
@@ -51,7 +51,7 @@ end
 -- test that wait until fd is readable
 do
     local t = gettime()
-    local ok, err, timeout = assert(wait.readable(r:fd(), 1000))
+    local ok, err, timeout = assert(wait.readable(r:fd(), 1.1))
     t = gettime() - t
     assert.is_true(ok)
     assert(not err, err)
@@ -69,7 +69,7 @@ until again
 do
     assert.is_true(w:close())
     local t = gettime()
-    local ok, err, timeout = wait.readable(r:fd(), 1000)
+    local ok, err, timeout = wait.readable(r:fd(), 1.1)
     t = gettime() - t
     assert.is_true(ok)
     assert.is_nil(err)
@@ -81,7 +81,7 @@ end
 do
     local fd = r:fd()
     r:close()
-    local ok, err, timeout = wait.readable(fd, 1000)
+    local ok, err, timeout = wait.readable(fd, 1.1)
     assert.is_false(ok)
     assert.equal(err.type, errno.EBADF)
     assert.is_nil(timeout)
