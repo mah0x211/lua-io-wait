@@ -17,7 +17,7 @@ $ luarocks install io-wait
 the functions/methods are return the error object created by https://github.com/mah0x211/lua-errno module.
 
 
-## ok, err, timeout = wait.readable( fd [, sec] )
+## fd, err, timeout = wait.readable( fd [, sec [, ...]] )
 
 wait until specified file descriptor `fd` can be readable within specified timeout seconds `sec`.
 
@@ -25,15 +25,21 @@ wait until specified file descriptor `fd` can be readable within specified timeo
 
 - `fd:integer`: file descriptor.
 - `sec:number`: timeout seconds. if `nil` or `<0`, wait forever.
+- `...:integer`: additional file descriptors.
 
 **Returns**
 
-- `ok:boolean`: if `true`, socket is ready to send.
+- `fd:integer`: file descriptor that is ready to read.
 - `err:error`: error object.
 - `timeout:boolean`: timed-out.
+- `hup:boolean`: `true` if `POLLHUP` or `POLLRDHUP` is set.
+
+**NOTE:**
+
+it reports the first file descriptor ready in the argument order.  
 
 
-## ok, err, timeout = wait.writable( fd [, sec] )
+## fd, err, timeout = wait.writable( fd [, sec [, ...]] )
 
 wait until specified file descriptor `fd` can be writable within specified timeout seconds `sec`.
 
@@ -41,9 +47,15 @@ wait until specified file descriptor `fd` can be writable within specified timeo
 
 - `fd:integer`: file descriptor.
 - `sec:number`: timeout seconds. if `nil` or `<0`, wait forever.
+- `...:integer`: additional file descriptors.
 
 **Returns**
 
-- `ok:boolean`: if `true`, socket is ready to send.
+- `fd:integer`: file descriptor that is ready to write.
 - `err:error`: error object.
 - `timeout:boolean`: timed-out.
+- `hup:boolean`: `true` if `POLLHUP` or `POLLRDHUP` is set.
+
+**NOTE:**
+
+same as `wait.readable`.

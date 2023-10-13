@@ -1,5 +1,5 @@
+local unpack = unpack or table.unpack
 local assert = require('assert')
-local errno = require('errno')
 local wait = require('io.wait')
 local gettime = require('time.clock').gettime
 local pipe = require('os.pipe')
@@ -7,25 +7,46 @@ local pipe = require('os.pipe')
 local r, w, perr = pipe(true)
 assert(r, perr)
 
+-- test that return maximum number of file descriptors to wait
+do
+    local fdsetsize = wait.fdsetsize()
+    assert.greater(fdsetsize, 0)
+end
+
+-- test that return EINVAL error if too many file descriptors are specified
+do
+    local fds = {}
+    for i = 1, wait.fdsetsize() do
+        fds[i] = r:fd()
+    end
+    local fd, err, timeout, hup = wait.readable(0, nil, unpack(fds))
+    assert.is_nil(fd)
+    assert.match(err, 'EINVAL')
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
+end
+
 -- test that return timeout
 do
     local t = gettime()
-    local ok, err, timeout = wait.readable(r:fd(), 1.1)
+    local fd, err, timeout, hup = wait.readable(r:fd(), 1.1)
     t = gettime() - t
-    assert.is_false(ok)
+    assert.is_nil(fd)
     assert(not err, err)
     assert.is_true(timeout)
+    assert.is_nil(hup)
     assert(t > 1.0 and t < 1.5)
 end
 
 -- test that wait until fd is writable
 do
     local t = gettime()
-    local ok, err, timeout = assert(wait.writable(w:fd(), 1.1))
+    local fd, err, timeout, hup = assert(wait.writable(w:fd(), 1.1))
     t = gettime() - t
-    assert.is_true(ok)
+    assert.equal(fd, w:fd())
     assert(not err, err)
     assert.is_nil(timeout)
+    assert.is_nil(hup)
     assert.less(t, 1.0)
 end
 
@@ -40,22 +61,24 @@ until again == true
 -- test that wait untile timeout
 do
     local t = gettime()
-    local ok, err, timeout = wait.writable(w:fd(), 1.1)
+    local fd, err, timeout, hup = wait.writable(w:fd(), 1.1)
     t = gettime() - t
-    assert.is_false(ok)
+    assert.is_nil(fd)
     assert(not err, err)
     assert.is_true(timeout)
+    assert.is_nil(hup)
     assert(t > 1.0 and t < 1.5)
 end
 
 -- test that wait until fd is readable
 do
     local t = gettime()
-    local ok, err, timeout = assert(wait.readable(r:fd(), 1.1))
+    local fd, err, timeout, hup = assert(wait.readable(r:fd(), 1.1))
     t = gettime() - t
-    assert.is_true(ok)
+    assert.equal(fd, r:fd())
     assert(not err, err)
     assert.is_nil(timeout)
+    assert.is_nil(hup)
     assert.less(t, 1.0)
 end
 
@@ -69,20 +92,103 @@ until again
 do
     assert.is_true(w:close())
     local t = gettime()
-    local ok, err, timeout = wait.readable(r:fd(), 1.1)
+    local fd, err, timeout, hup = wait.readable(r:fd(), 1.1)
     t = gettime() - t
-    assert.is_true(ok)
+    assert.equal(fd, r:fd())
     assert.is_nil(err)
     assert.is_nil(timeout)
+    assert.is_true(hup)
     assert.less(t, 0.1)
 end
 
--- test that return error if fd is closed
+-- test that return EBADF error if specified fd is invalid
 do
-    local fd = r:fd()
-    r:close()
-    local ok, err, timeout = wait.readable(fd, 1.1)
-    assert.is_false(ok)
-    assert.equal(err.type, errno.EBADF)
+    local fd, err, timeout, hup = wait.readable(-1, 1.1)
+    assert.is_nil(fd)
+    assert.re_match(err, 'EBADF.+ fd#1:-1')
     assert.is_nil(timeout)
+    assert.is_nil(hup)
+
+    -- test that return error if additional fd is invalid
+    fd, err, timeout, hup = wait.readable(0, 1.1, -123)
+    assert.is_nil(fd)
+    assert.re_match(err, string.format('EBADF.+ fd#2:%d', -123))
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
+end
+
+-- test that return error if fd is already closed
+do
+    local badfd = r:fd()
+    r:close()
+    local fd, err, timeout, hup = wait.readable(badfd, 1.1)
+    assert.is_nil(fd)
+    assert.re_match(err, string.format('EBADF.+ fd#1:%d', badfd))
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
+end
+
+-- test that multiple fd can be waited
+do
+    r, w, perr = pipe(true)
+    assert(r, perr)
+    local r2, w2
+    r2, w2, perr = pipe(true)
+    assert(r, perr)
+
+    -- test that return timeout
+    local fd, err, timeout, hup = wait.readable(r:fd(), 1.1, r2:fd())
+    assert.is_nil(fd)
+    assert.is_nil(err)
+    assert.is_true(timeout)
+    assert.is_nil(hup)
+
+    -- test that return fd of second pipe
+    w2:write('x')
+    fd, err, timeout, hup = wait.readable(r:fd(), 1.1, r2:fd())
+    assert.equal(fd, r2:fd())
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
+
+    -- test that return fd of first pipe
+    w:write('x')
+    fd, err, timeout, hup = wait.readable(r:fd(), 1.1, r2:fd())
+    assert.equal(fd, r:fd())
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
+
+    -- test that does not report hup if first pipe is not closed
+    w2:close()
+    fd, err, timeout, hup = wait.readable(r:fd(), 1.1, r2:fd())
+    assert.equal(fd, r:fd())
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
+
+    -- test that report hup of second pipe
+    r:read()
+    fd, err, timeout, hup = wait.readable(r:fd(), 1.1, r2:fd())
+    assert.equal(fd, r2:fd())
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.is_true(hup)
+
+    -- test that does not report EBADF if file descriptor is not specified at first
+    w:write('x')
+    local badfd = r2:fd()
+    r2:close()
+    fd, err, timeout, hup = wait.readable(r:fd(), 1.1, badfd)
+    assert.equal(fd, r:fd())
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
+
+    -- test that EBADF is returned if file descriptor is invalid
+    fd, err, timeout, hup = wait.readable(badfd, 1.1, r:fd())
+    assert.is_nil(fd)
+    assert.re_match(err, string.format('EBADF.+ fd#1:%d', badfd))
+    assert.is_nil(timeout)
+    assert.is_nil(hup)
 end
