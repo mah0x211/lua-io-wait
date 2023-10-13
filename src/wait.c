@@ -21,6 +21,7 @@
  *
  */
 
+#define _GNU_SOURCE
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
@@ -29,64 +30,122 @@
 // lua
 #include <lua_errno.h>
 
-static inline int poll_lua(lua_State *L, short event, short event_opts)
-{
-    int fd               = lauxh_checkinteger(L, 1);
-    lua_Number sec       = luaL_optnumber(L, 2, -1);
-    lua_Integer msec     = (sec < 0) ? -1 : (sec * 1000);
-    struct pollfd fds[1] = {
-        {
-         .events  = event | event_opts,
-         .revents = 0,
-         .fd      = fd,
-         }
-    };
+#if !defined(POLLRDHUP)
+# define POLLRDHUP 0
+#endif
 
-    lua_settop(L, 0);
+static inline void push_ebadf(lua_State *L, int argidx, int fd)
+{
+    char msg[512];
+    snprintf(msg, sizeof(msg), "invalid fd#%d:%d", argidx, fd);
+    errno = EBADF;
+    lua_errno_new_with_message(L, errno, "poll", msg);
+}
+
+static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
+                           lua_Integer msec)
+{
     // wait until usable or exceeded timeout
     errno = 0;
-    switch (poll(fds, 1, msec)) {
+    switch (poll(fds, nfds, msec)) {
     case 0:
         // timeout
-        lua_pushboolean(L, 0);
+        lua_pushnil(L);
         lua_pushnil(L);
         lua_pushboolean(L, 1);
         return 3;
 
     case -1:
         // got error
-        lua_pushboolean(L, 0);
+        lua_pushnil(L);
         lua_errno_new(L, errno, "poll");
         return 2;
 
     default:
         // selected
-        if (fds[0].revents & (event | POLLHUP)) {
-            lua_pushboolean(L, 1);
-            return 1;
+        for (nfds_t i = 0; i < nfds; i++) {
+            if (fds[i].revents) {
+                // report only first fd
+                if (fds[i].revents & POLLNVAL) {
+                    lua_pushnil(L);
+                    push_ebadf(L, i + 1, fds[i].fd);
+                    return 2;
+                }
+
+                lua_pushinteger(L, fds[i].fd);
+                if (fds[i].revents & (POLLHUP | POLLRDHUP)) {
+                    lua_pushnil(L);
+                    lua_pushnil(L);
+                    lua_pushboolean(L, 1);
+                    return 4;
+                }
+                return 1;
+            }
         }
-        // got error
-        lua_pushboolean(L, 0);
-        if (fds[0].revents & POLLNVAL) {
-            errno = EBADF;
+        return luaL_error(L, "BUG: poll() returns unexpected value");
+    }
+}
+
+static inline int waitevent_lua(lua_State *L, short events)
+{
+    int narg                      = lua_gettop(L);
+    int fd                        = lauxh_checkinteger(L, 1);
+    lua_Number sec                = luaL_optnumber(L, 2, -1);
+    lua_Integer msec              = (sec < 0) ? -1 : (sec * 1000);
+    int nfds                      = 1;
+    struct pollfd fds[FD_SETSIZE] = {
+        {
+         .events  = events,
+         .revents = 0,
+         .fd      = fd,
+         }
+    };
+
+    // check first fd
+    if (fd < 0) {
+        lua_pushnil(L);
+        push_ebadf(L, 1, fd);
+        return 2;
+    }
+    // check additional fds
+    for (int i = 3; i <= narg; i++) {
+        if (nfds >= FD_SETSIZE) {
+            // too many fds
+            errno = EINVAL;
+            lua_pushnil(L);
             lua_errno_new(L, errno, "poll");
             return 2;
         }
-        return 1;
+
+        fds[nfds].fd     = lauxh_checkinteger(L, i);
+        fds[nfds].events = events;
+        if (fds[nfds].fd < 0) {
+            lua_pushnil(L);
+            push_ebadf(L, nfds + 1, fds[nfds].fd);
+            return 2;
+        }
+        nfds++;
     }
+    lua_settop(L, 0);
+
+    // wait until usable or exceeded timeout
+    return poll_lua(L, fds, nfds, msec);
 }
 
 static int writable_lua(lua_State *L)
 {
-    return poll_lua(L, POLLOUT, POLLNVAL | POLLHUP | POLLERR);
+    return waitevent_lua(L, POLLOUT | POLLNVAL | POLLHUP | POLLERR);
 }
 
 static int readable_lua(lua_State *L)
 {
-#if !defined(POLLRDHUP)
-# define POLLRDHUP 0
-#endif
-    return poll_lua(L, POLLIN, POLLPRI | POLLRDHUP);
+    return waitevent_lua(L, POLLIN | POLLPRI | POLLRDHUP);
+}
+
+static int fdsetsize_lua(lua_State *L)
+{
+    lua_pushinteger(L, FD_SETSIZE);
+    return 1;
 }
 
 LUALIB_API int luaopen_io_wait(lua_State *L)
@@ -94,6 +153,7 @@ LUALIB_API int luaopen_io_wait(lua_State *L)
     lua_errno_loadlib(L);
 
     lua_createtable(L, 0, 2);
+    lauxh_pushfn2tbl(L, "fdsetsize", fdsetsize_lua);
     lauxh_pushfn2tbl(L, "readable", readable_lua);
     lauxh_pushfn2tbl(L, "writable", writable_lua);
 
