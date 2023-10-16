@@ -17,7 +17,7 @@ $ luarocks install io-wait
 the functions/methods are return the error object created by https://github.com/mah0x211/lua-errno module.
 
 
-## fd, err, timeout = wait.readable( fd [, sec [, ...]] )
+## fd, err, timeout, hup = wait.readable( fd [, sec [, ...]] )
 
 wait until specified file descriptor `fd` can be readable within specified timeout seconds `sec`.
 
@@ -39,7 +39,7 @@ wait until specified file descriptor `fd` can be readable within specified timeo
 it reports the first file descriptor ready in the argument order.  
 
 
-## fd, err, timeout = wait.writable( fd [, sec [, ...]] )
+## fd, err, timeout, hup = wait.writable( fd [, sec [, ...]] )
 
 wait until specified file descriptor `fd` can be writable within specified timeout seconds `sec`.
 
