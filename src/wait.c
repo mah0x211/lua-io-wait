@@ -89,24 +89,24 @@ static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
 static inline int waitevent_lua(lua_State *L, short events)
 {
     int narg                      = lua_gettop(L);
-    int fd                        = lauxh_checkinteger(L, 1);
     lua_Number sec                = luaL_optnumber(L, 2, -1);
     lua_Integer msec              = (sec < 0) ? -1 : (sec * 1000);
-    int nfds                      = 1;
-    struct pollfd fds[FD_SETSIZE] = {
-        {
-         .events  = events,
-         .revents = 0,
-         .fd      = fd,
-         }
-    };
+    int nfds                      = 0;
+    struct pollfd fds[FD_SETSIZE] = {};
 
     // check first fd
-    if (fd < 0) {
-        lua_pushnil(L);
-        push_ebadf(L, 1, fd);
-        return 2;
+    if (!lua_isnoneornil(L, 1)) {
+        int fd = lauxh_checkinteger(L, 1);
+        if (fd < 0) {
+            lua_pushnil(L);
+            push_ebadf(L, 1, fd);
+            return 2;
+        }
+        fds[nfds].events = events;
+        fds[nfds].fd     = fd;
+        nfds++;
     }
+
     // check additional fds
     for (int i = 3; i <= narg; i++) {
         if (nfds >= FD_SETSIZE) {
@@ -115,6 +115,9 @@ static inline int waitevent_lua(lua_State *L, short events)
             lua_pushnil(L);
             lua_errno_new(L, errno, "poll");
             return 2;
+        } else if (lua_isnoneornil(L, i)) {
+            // ignore nil
+            continue;
         }
 
         fds[nfds].fd     = lauxh_checkinteger(L, i);
@@ -126,9 +129,14 @@ static inline int waitevent_lua(lua_State *L, short events)
         }
         nfds++;
     }
-    lua_settop(L, 0);
+
+    if (!nfds) {
+        // do nothing if no file descriptors are specified
+        return 0;
+    }
 
     // wait until usable or exceeded timeout
+    lua_settop(L, 0);
     return poll_lua(L, fds, nfds, msec);
 }
 
