@@ -16,6 +16,8 @@ $ luarocks install io-wait
 
 the functions/methods are return the error object created by https://github.com/mah0x211/lua-errno module.
 
+NOTE: when `EINTR` is occurred, it will be retried to call the system call.
+
 
 ## fd, err, timeout, hup = wait.readable( [fd [, sec [, ...]]] )
 
