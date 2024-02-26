@@ -26,6 +26,7 @@
 #include <poll.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 // lua
 #include <lua_errno.h>
@@ -42,13 +43,36 @@ static inline void push_ebadf(lua_State *L, int argidx, int fd)
     lua_errno_new_with_message(L, errno, "poll", msg);
 }
 
+static inline long calculate_diff_millis(struct timespec *start,
+                                         struct timespec *end)
+{
+    long seconds     = end->tv_sec - start->tv_sec;
+    long nanoseconds = end->tv_nsec - start->tv_nsec;
+
+    if (nanoseconds < 0) {
+        seconds -= 1;
+        nanoseconds += 1000000000;
+    }
+    return (seconds * 1000) + (nanoseconds / 1000000);
+}
+
 static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
                            lua_Integer msec)
 {
+    struct timespec t = {};
+
+RETRY:
+    // get current time
+    if (clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
+        lua_pushnil(L);
+        lua_errno_new(L, errno, "clock_gettime");
+        return 2;
+    }
     // wait until usable or exceeded timeout
     errno = 0;
     switch (poll(fds, nfds, msec)) {
     case 0:
+TIMEOUT:
         // timeout
         lua_pushnil(L);
         lua_pushnil(L);
@@ -57,6 +81,21 @@ static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
 
     case -1:
         // got error
+        if (errno == EINTR) {
+            // calculate elapsed time in msec and subtract it from msec
+            struct timespec now = {};
+
+            if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+                lua_pushnil(L);
+                lua_errno_new(L, errno, "clock_gettime");
+                return 2;
+            }
+            msec -= calculate_diff_millis(&t, &now);
+            if (msec > 0) {
+                goto RETRY;
+            }
+            goto TIMEOUT;
+        }
         lua_pushnil(L);
         lua_errno_new(L, errno, "poll");
         return 2;

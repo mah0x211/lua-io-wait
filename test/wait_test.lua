@@ -3,6 +3,8 @@ local assert = require('assert')
 local wait = require('io.wait')
 local gettime = require('time.clock').gettime
 local pipe = require('os.pipe')
+local signal = require('signal')
+local fork = require('fork')
 
 local r, w, perr = pipe(true)
 assert(r, perr)
@@ -30,6 +32,21 @@ end
 do
     local t = gettime()
     local fd, err, timeout, hup = wait.readable(r:fd(), 0.5)
+    t = gettime() - t
+    assert.is_nil(fd)
+    assert(not err, err)
+    assert.is_true(timeout)
+    assert.is_nil(hup)
+    assert(t > 0.5 and t < 1)
+
+    -- test that return timeout even if eintr error is occurred
+    local p = assert(fork())
+    if p:is_child() then
+        os.exit(0)
+    end
+
+    t = gettime()
+    fd, err, timeout, hup = wait.readable(r:fd(), 0.5)
     t = gettime() - t
     assert.is_nil(fd)
     assert(not err, err)
