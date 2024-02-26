@@ -63,7 +63,7 @@ static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
 
 RETRY:
     // get current time
-    if (clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
+    if (msec > 0 && clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "clock_gettime");
         return 2;
@@ -82,9 +82,13 @@ TIMEOUT:
     case -1:
         // got error
         if (errno == EINTR) {
-            // calculate elapsed time in msec and subtract it from msec
             struct timespec now = {};
 
+            if (msec == 0) {
+                goto RETRY;
+            }
+
+            // calculate elapsed time in msec and subtract it from msec
             if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
                 lua_pushnil(L);
                 lua_errno_new(L, errno, "clock_gettime");
