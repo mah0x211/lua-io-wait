@@ -35,14 +35,6 @@
 # define POLLRDHUP 0
 #endif
 
-static inline void push_ebadf(lua_State *L, int argidx, int fd)
-{
-    char msg[512];
-    snprintf(msg, sizeof(msg), "invalid fd#%d:%d", argidx, fd);
-    errno = EBADF;
-    lua_errno_new_with_message(L, errno, "poll", msg);
-}
-
 static inline long calculate_diff_millis(struct timespec *start,
                                          struct timespec *end)
 {
@@ -70,21 +62,18 @@ RETRY:
     // wait until usable or exceeded timeout
     errno = 0;
     rc    = poll(fds, nfds, msec);
-    if (rc == -1) {
-        // got error
-        if (errno == EINTR) {
-            struct timespec now = {};
-            // calculate elapsed time in msec and subtract it from msec
-            if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-                return -1;
-            }
-            msec -= calculate_diff_millis(&t, &now);
-            if (msec > 0) {
-                goto RETRY;
-            }
-            // timeout
-            rc = 0;
+    if (rc == -1 && errno == EINTR) {
+        struct timespec now = {};
+        // calculate elapsed time in msec and subtract it from msec
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+            return -1;
         }
+        msec -= calculate_diff_millis(&t, &now);
+        if (msec > 0) {
+            goto RETRY;
+        }
+        // timeout
+        rc = 0;
     }
     return rc;
 }
@@ -102,6 +91,14 @@ RETRY:
         goto RETRY;
     }
     return rc;
+}
+
+static inline void push_ebadf(lua_State *L, int argidx, int fd)
+{
+    char msg[512];
+    snprintf(msg, sizeof(msg), "invalid fd#%d:%d", argidx, fd);
+    errno = EBADF;
+    lua_errno_new_with_message(L, errno, "poll", msg);
 }
 
 static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
