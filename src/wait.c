@@ -56,23 +56,62 @@ static inline long calculate_diff_millis(struct timespec *start,
     return (seconds * 1000) + (nanoseconds / 1000000);
 }
 
-static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
-                           lua_Integer msec)
+static inline int poll_with_timeout_lua(struct pollfd *fds, nfds_t nfds,
+                                        lua_Integer msec)
 {
     struct timespec t = {};
+    int rc            = 0;
 
 RETRY:
     // get current time
-    if (msec > 0 && clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
-        lua_pushnil(L);
-        lua_errno_new(L, errno, "clock_gettime");
-        return 2;
+    if (clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
+        return -1;
     }
     // wait until usable or exceeded timeout
     errno = 0;
-    switch (poll(fds, nfds, msec)) {
+    rc    = poll(fds, nfds, msec);
+    if (rc == -1) {
+        // got error
+        if (errno == EINTR) {
+            struct timespec now = {};
+            // calculate elapsed time in msec and subtract it from msec
+            if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+                return -1;
+            }
+            msec -= calculate_diff_millis(&t, &now);
+            if (msec > 0) {
+                goto RETRY;
+            }
+            // timeout
+            rc = 0;
+        }
+    }
+    return rc;
+}
+
+static inline int poll_without_timeout_lua(struct pollfd *fds, nfds_t nfds,
+                                           lua_Integer msec)
+{
+    int rc = 0;
+
+RETRY:
+    // wait until usable or exceeded timeout
+    errno = 0;
+    rc    = poll(fds, nfds, msec);
+    if (rc == -1 && errno == EINTR) {
+        goto RETRY;
+    }
+    return rc;
+}
+
+static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
+                           lua_Integer msec)
+{
+    int rc = msec > 0 ? poll_with_timeout_lua(fds, nfds, msec) :
+                        poll_without_timeout_lua(fds, nfds, msec);
+
+    switch (rc) {
     case 0:
-TIMEOUT:
         // timeout
         lua_pushnil(L);
         lua_pushnil(L);
@@ -81,25 +120,6 @@ TIMEOUT:
 
     case -1:
         // got error
-        if (errno == EINTR) {
-            struct timespec now = {};
-
-            if (msec == 0) {
-                goto RETRY;
-            }
-
-            // calculate elapsed time in msec and subtract it from msec
-            if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-                lua_pushnil(L);
-                lua_errno_new(L, errno, "clock_gettime");
-                return 2;
-            }
-            msec -= calculate_diff_millis(&t, &now);
-            if (msec > 0) {
-                goto RETRY;
-            }
-            goto TIMEOUT;
-        }
         lua_pushnil(L);
         lua_errno_new(L, errno, "poll");
         return 2;
