@@ -26,7 +26,6 @@
 #include <poll.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 // lua
 #include <lua_errno.h>
@@ -34,64 +33,6 @@
 #if !defined(POLLRDHUP)
 # define POLLRDHUP 0
 #endif
-
-static inline long calculate_diff_millis(struct timespec *start,
-                                         struct timespec *end)
-{
-    long seconds     = end->tv_sec - start->tv_sec;
-    long nanoseconds = end->tv_nsec - start->tv_nsec;
-
-    if (nanoseconds < 0) {
-        seconds -= 1;
-        nanoseconds += 1000000000;
-    }
-    return (seconds * 1000) + (nanoseconds / 1000000);
-}
-
-static inline int poll_with_timeout_lua(struct pollfd *fds, nfds_t nfds,
-                                        lua_Integer msec)
-{
-    struct timespec t = {};
-    int rc            = 0;
-
-RETRY:
-    // get current time
-    if (clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
-        return -1;
-    }
-    // wait until usable or exceeded timeout
-    errno = 0;
-    rc    = poll(fds, nfds, msec);
-    if (rc == -1 && errno == EINTR) {
-        struct timespec now = {};
-        // calculate elapsed time in msec and subtract it from msec
-        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-            return -1;
-        }
-        msec -= calculate_diff_millis(&t, &now);
-        if (msec > 0) {
-            goto RETRY;
-        }
-        // timeout
-        rc = 0;
-    }
-    return rc;
-}
-
-static inline int poll_without_timeout_lua(struct pollfd *fds, nfds_t nfds,
-                                           lua_Integer msec)
-{
-    int rc = 0;
-
-RETRY:
-    // wait until usable or exceeded timeout
-    errno = 0;
-    rc    = poll(fds, nfds, msec);
-    if (rc == -1 && errno == EINTR) {
-        goto RETRY;
-    }
-    return rc;
-}
 
 static inline void push_ebadf(lua_State *L, int argidx, int fd)
 {
@@ -104,8 +45,7 @@ static inline void push_ebadf(lua_State *L, int argidx, int fd)
 static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
                            lua_Integer msec)
 {
-    int rc = msec > 0 ? poll_with_timeout_lua(fds, nfds, msec) :
-                        poll_without_timeout_lua(fds, nfds, msec);
+    int rc = poll(fds, nfds, msec);
 
     switch (rc) {
     case 0:
@@ -119,7 +59,12 @@ static inline int poll_lua(lua_State *L, struct pollfd *fds, nfds_t nfds,
         // got error
         lua_pushnil(L);
         lua_errno_new(L, errno, "poll");
-        return 2;
+        if (errno != EINTR) {
+            return 2;
+        }
+        // treat EINTR as timeout
+        lua_pushboolean(L, 1);
+        return 3;
 
     default:
         // selected
