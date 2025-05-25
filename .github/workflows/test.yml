@@ -40,7 +40,6 @@ jobs:
         luarocks install time-clock
         luarocks install os-pipe
         luarocks install fork
-        luarocks install signal
     -
       name: Run Test
       run: |
