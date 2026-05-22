@@ -37,14 +37,11 @@ jobs:
     -
       name: Install Tools
       run: |
-        luarocks install assert
-        luarocks install time-clock
-        luarocks install os-pipe
-        luarocks install fork
+        luarocks install testcase
     -
       name: Run Test
       run: |
-        lua ./test/wait_test.lua
+        testcase ./test/
     -
       name: Generate coverage reports
       run: |

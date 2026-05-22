@@ -1,21 +1,24 @@
 local unpack = unpack or table.unpack
+local testcase = require('testcase')
 local assert = require('assert')
 local wait = require('io.wait')
-local gettime = require('time.clock').gettime
-local pipe = require('os.pipe')
-local fork = require('fork')
+local timer = require('testcase.timer')
+local socketpair = require('testcase.socketpair')
+local fork = require('testcase.fork')
+-- nosigchld(true/false): install/restore a pure C no-op SIGCHLD handler
+-- without SA_RESTART, so poll() returns EINTR when a child exits.
+-- Using a closure with an upvalue keeps all state off static variables.
+local nosigchld = require('testcase.nosigchld')
 
-local r, w, perr = pipe(true)
-assert(r, perr)
-
--- test that return maximum number of file descriptors to wait
-do
+function testcase.test_fdsetsize()
+    -- test that return maximum number of file descriptors to wait
     local fdsetsize = wait.fdsetsize()
     assert.greater(fdsetsize, 0)
 end
 
--- test that return EINVAL error if too many file descriptors are specified
-do
+function testcase.test_readable_einval()
+    -- test that return EINVAL error if too many file descriptors are specified
+    local r, _ = assert(socketpair())
     local fds = {}
     for i = 1, wait.fdsetsize() do
         fds[i] = r:fd()
@@ -27,42 +30,49 @@ do
     assert.is_nil(hup)
 end
 
--- test that return timeout
-do
-    local t = gettime()
+function testcase.test_readable_timeout()
+    -- test that return timeout
+    local r = assert(socketpair(true))
+    local t = timer.nanotime()
     local fd, err, timeout, hup = wait.readable(r:fd(), 0.5)
-    t = gettime() - t
+    t = timer.nanotime() - t
     assert.is_nil(fd)
     assert(not err, err)
     assert.is_true(timeout)
     assert.is_nil(hup)
     assert(t > 0.5 and t < 1)
+end
 
-    if tonumber(_G._VERSION:match('%d%.%d')) < 5.4 then
-        -- in Lua 5.3 and earlier, wait.readable() may return EINTR error
-        -- test that return timeout=true even if eintr error is occurred
-        local p = assert(fork())
-        if p:is_child() then
-            os.exit(0)
-        end
-        t = gettime()
-        fd, err, timeout, hup = wait.readable(r:fd(), 1)
-        t = gettime() - t
-        assert.is_nil(fd)
-        assert.match(err, 'EINTR')
-        assert.is_true(timeout)
-        assert.is_nil(hup)
-        assert(t < 1)
+function testcase.test_readable_eintr()
+    -- test that return timeout=true even if eintr error is occurred
+    local r = assert(socketpair(true))
+    assert(nosigchld(true))
+    local p = assert(fork())
+    if p:is_child() then
+        timer.sleep(0.05)
+        os.exit(0)
     end
+    local t = timer.nanotime()
+    local fd, err, timeout, hup = wait.readable(r:fd(), 1)
+    assert(nosigchld(false))
+    t = timer.nanotime() - t
+    assert.is_nil(fd)
+    assert.match(err, 'EINTR')
+    assert.is_true(timeout)
+    assert.is_nil(hup)
+    assert(t < 1)
+end
 
+function testcase.test_readable_no_error_on_eintr()
     -- test that return no error even if eintr error is occurred
+    local r = assert(socketpair(true))
     local p = assert(fork())
     if p:is_child() then
         os.exit(0)
     end
-    t = gettime()
-    fd, err, timeout, hup = wait.readable(r:fd(), 0)
-    t = gettime() - t
+    local t = timer.nanotime()
+    local fd, err, timeout, hup = wait.readable(r:fd(), 0)
+    t = timer.nanotime() - t
     assert.is_nil(fd)
     assert(not err, err)
     assert.is_true(timeout)
@@ -70,11 +80,12 @@ do
     assert.less(t, 0.001)
 end
 
--- test that wait until fd is writable
-do
-    local t = gettime()
+function testcase.test_writable()
+    -- test that wait until fd is writable
+    local _, w = assert(socketpair(true))
+    local t = timer.nanotime()
     local fd, err, timeout, hup = assert(wait.writable(w:fd(), 1))
-    t = gettime() - t
+    t = timer.nanotime() - t
     assert.equal(fd, w:fd())
     assert(not err, err)
     assert.is_nil(timeout)
@@ -82,19 +93,19 @@ do
     assert.less(t, 1)
 end
 
--- fill data
-repeat
-    local _, err, again = w:write('x')
-    if err then
-        error(err)
-    end
-until again == true
-
--- test that wait until timeout
-do
-    local t = gettime()
+function testcase.test_writable_timeout()
+    -- test that wait until timeout when write buffer is full
+    local _, w = assert(socketpair(true))
+    -- fill write buffer
+    repeat
+        local _, err, again = w:write('x')
+        if err then
+            error(tostring(err))
+        end
+    until again == true
+    local t = timer.nanotime()
     local fd, err, timeout, hup = wait.writable(w:fd(), 0.5)
-    t = gettime() - t
+    t = timer.nanotime() - t
     assert.is_nil(fd)
     assert(not err, err)
     assert.is_true(timeout)
@@ -102,11 +113,19 @@ do
     assert(t > 0.5 and t < 1)
 end
 
--- test that wait until fd is readable
-do
-    local t = gettime()
+function testcase.test_readable_with_data()
+    -- test that wait until fd is readable
+    local r, w = assert(socketpair(true))
+    -- fill write buffer to make r readable
+    repeat
+        local _, err, again = w:write('x')
+        if err then
+            error(tostring(err))
+        end
+    until again == true
+    local t = timer.nanotime()
     local fd, err, timeout, hup = assert(wait.readable(r:fd(), 1))
-    t = gettime() - t
+    t = timer.nanotime() - t
     assert.equal(fd, r:fd())
     assert(not err, err)
     assert.is_nil(timeout)
@@ -114,18 +133,13 @@ do
     assert.less(t, 1)
 end
 
--- consume
-repeat
-    local _, err, again = r:read()
-    assert.is_nil(err)
-until again
-
--- test that return true imemdiatery if peer is closed
-do
-    assert.is_true(w:close())
-    local t = gettime()
+function testcase.test_readable_hup()
+    -- test that return immediately if peer is closed
+    local r, w = assert(socketpair(true))
+    w:close()
+    local t = timer.nanotime()
     local fd, err, timeout, hup = wait.readable(r:fd(), 1)
-    t = gettime() - t
+    t = timer.nanotime() - t
     assert.equal(fd, r:fd())
     assert.is_nil(err)
     assert.is_nil(timeout)
@@ -133,8 +147,8 @@ do
     assert.less(t, 1)
 end
 
--- test that return EBADF error if specified fd is invalid
-do
+function testcase.test_readable_ebadf()
+    -- test that return EBADF error if specified fd is invalid
     local fd, err, timeout, hup = wait.readable(-1, 1)
     assert.is_nil(fd)
     assert.re_match(err, 'EBADF.+ fd#1:-1')
@@ -149,8 +163,9 @@ do
     assert.is_nil(hup)
 end
 
--- test that return error if fd is already closed
-do
+function testcase.test_readable_ebadf_closed_fd()
+    -- test that return error if fd is already closed
+    local r = assert(socketpair(true))
     local badfd = r:fd()
     r:close()
     local fd, err, timeout, hup = wait.readable(badfd, 1)
@@ -160,13 +175,10 @@ do
     assert.is_nil(hup)
 end
 
--- test that multiple fd can be waited
-do
-    r, w, perr = pipe(true)
-    assert(r, perr)
-    local r2, w2
-    r2, w2, perr = pipe(true)
-    assert(r, perr)
+function testcase.test_readable_multiple_fds()
+    -- test that multiple fd can be waited
+    local r, w = assert(socketpair(true))
+    local r2, w2 = assert(socketpair(true))
 
     -- test that return timeout
     local fd, err, timeout, hup = wait.readable(r:fd(), 0.5, r2:fd())
@@ -188,7 +200,7 @@ do
     assert.is_nil(timeout)
     assert.is_nil(hup)
 
-    -- test that return fd of second pipe
+    -- test that return fd of second pair
     w2:write('x')
     fd, err, timeout, hup = wait.readable(r:fd(), 1, r2:fd())
     assert.equal(fd, r2:fd())
@@ -196,7 +208,7 @@ do
     assert.is_nil(timeout)
     assert.is_nil(hup)
 
-    -- test that return fd of first pipe
+    -- test that return fd of first pair
     w:write('x')
     fd, err, timeout, hup = wait.readable(r:fd(), 1, r2:fd())
     assert.equal(fd, r:fd())
@@ -204,7 +216,7 @@ do
     assert.is_nil(timeout)
     assert.is_nil(hup)
 
-    -- test that does not report hup if first pipe is not closed
+    -- test that does not report hup if first pair is not closed
     w2:close()
     fd, err, timeout, hup = wait.readable(r:fd(), 1, r2:fd())
     assert.equal(fd, r:fd())
@@ -212,7 +224,7 @@ do
     assert.is_nil(timeout)
     assert.is_nil(hup)
 
-    -- test that report hup of second pipe
+    -- test that report hup of second pair
     r:read()
     fd, err, timeout, hup = wait.readable(r:fd(), 1, r2:fd())
     assert.equal(fd, r2:fd())
