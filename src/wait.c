@@ -25,10 +25,13 @@
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
-#include <string.h>
-#include <unistd.h>
+#include <sys/select.h>
 // lua
-#include <lua_errno.h>
+#include <lauxlib.h>
+#include <lua.h>
+// external libraries
+#include "lauxhlib.h"
+#include "lua_errno.h"
 
 #if !defined(POLLRDHUP)
 # define POLLRDHUP 0
