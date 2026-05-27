@@ -16,7 +16,7 @@ dependencies = {
     "lauxhlib >= 0.3.1",
 }
 build_dependencies = {
-    "luarocks-build-hooks >= 0.7.0",
+    "luarocks-build-hooks >= 0.8.0",
 }
 build = {
     type = "hooks",
