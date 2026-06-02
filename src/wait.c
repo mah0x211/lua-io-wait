@@ -22,16 +22,16 @@
  */
 
 #define _GNU_SOURCE
+// depend
+#include "lauxhlib.h"
+#include "lua_errno.h"
+// lua
+#include <lauxlib.h>
+// system
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
 #include <sys/select.h>
-// lua
-#include <lauxlib.h>
-#include <lua.h>
-// external libraries
-#include "lauxhlib.h"
-#include "lua_errno.h"
 
 #if !defined(POLLRDHUP)
 # define POLLRDHUP 0
